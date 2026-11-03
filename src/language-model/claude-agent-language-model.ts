@@ -25,6 +25,7 @@ export class Model implements LanguageModelV3 {
     readonly modelId: string,
     readonly dependencies: Dependencies,
     readonly connection: Readonly<Record<string, string>> = {},
+    readonly fast = false,
   ) {}
 
   async doGenerate(_options: LanguageModelV3CallOptions): Promise<never> {
@@ -47,6 +48,7 @@ export class Model implements LanguageModelV3 {
     const loaded = settings?.[ClaudeSystemPrompt.INSTRUCTIONS_OPTION]
     const instructions = typeof loaded === "string" ? loaded : undefined
     const effort = parseEffort(settings?.effort)
+    const fast = typeof settings?.fast === "boolean" ? settings.fast : this.fast
     const primary = kind === "primary"
     const branch = kind === "generate" || kind === "compaction"
     const sessionID = primary ? session : undefined
@@ -71,6 +73,7 @@ export class Model implements LanguageModelV3 {
               compaction: kind === "compaction",
               model: this.modelId,
               effort,
+              fast,
               maxOutputTokens: options.maxOutputTokens,
               connection: this.connection,
               system,

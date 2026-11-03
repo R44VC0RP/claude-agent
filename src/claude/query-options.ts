@@ -88,6 +88,7 @@ export async function session(input: {
   readonly directory: string
   readonly model: string
   readonly effort?: Options["effort"]
+  readonly fast?: boolean
   readonly maxOutputTokens?: number
   readonly system: NonNullable<Options["systemPrompt"]>
   readonly tools: readonly LanguageModelV3FunctionTool[]
@@ -106,6 +107,8 @@ export async function session(input: {
     hooks: ToolHooks.make(input.pending),
     mcpServers: {},
   }
+  // The Agent SDK only allows fast mode when it is opted in through flag settings
+  if (input.fast) options.settings = { disableAllHooks: true, fastMode: true }
   if (input.maxOutputTokens !== undefined) {
     options.env = { ...options.env, CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(input.maxOutputTokens) }
   }

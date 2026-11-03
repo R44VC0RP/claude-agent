@@ -158,5 +158,6 @@ export async function start(options: Options) {
     stop,
     setModel: (model: string) => session.setModel(model),
     setEffort: (effort: Options["effort"]) => session.applyFlagSettings({ effortLevel: effort ?? null }),
+    setFast: (fast: boolean) => session.applyFlagSettings({ fastMode: fast }),
   }
 }

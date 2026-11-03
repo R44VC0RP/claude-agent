@@ -53,3 +53,25 @@ To update, run `opencode plugin update github:Tarquinen/opencode-claude-agent`. 
    ```
 
 3. In `/models`, choose **Sonnet (Claude 2)** or **Opus (Claude 2)** for the second account. The original entries still use your usual login.
+
+## Use fast mode
+
+The Agent SDK keeps fast mode off unless it is opted in. Add an Opus entry with `fast` to your `opencode.json`:
+
+```json
+{
+  "providers": {
+    "claude-agent": {
+      "models": {
+        "opus-fast": {
+          "modelID": "opus",
+          "name": "Opus (fast)",
+          "settings": { "fast": true }
+        }
+      }
+    }
+  }
+}
+```
+
+Fast mode only works on Opus models and bills as extra usage on a subscription. Combine it with `configDir` to use it on a second account.

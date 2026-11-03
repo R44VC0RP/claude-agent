@@ -32,6 +32,7 @@ export interface Request {
   readonly compaction?: boolean
   readonly model: string
   readonly effort?: Options["effort"]
+  readonly fast?: boolean
   readonly maxOutputTokens?: number
   readonly connection?: Readonly<Record<string, string>>
   readonly system: NonNullable<Options["systemPrompt"]>
@@ -45,7 +46,8 @@ interface LiveProcess {
   readonly pending: PendingTools.Interface
   model: string
   effort?: Options["effort"]
-  // Settings that need a new process to change. Model and effort change on the running one.
+  fast: boolean
+  // Settings that need a new process to change. Model, effort and fast mode change on the running one.
   readonly launch: string
   waiting?: string[]
 }
@@ -176,6 +178,7 @@ export function registry() {
                   directory: input.directory,
                   model: request.model,
                   effort: request.effort,
+                  fast: request.fast,
                   maxOutputTokens: request.maxOutputTokens,
                   system: request.system,
                   tools: request.tools,
@@ -185,7 +188,14 @@ export function registry() {
                 }),
               ),
             )
-            entry.process = { session, pending, model: request.model, effort: request.effort, launch: launch(request) }
+            entry.process = {
+              session,
+              pending,
+              model: request.model,
+              effort: request.effort,
+              fast: request.fast === true,
+              launch: launch(request),
+            }
           }
           const process = entry.process
           const probe = yield* restore(
@@ -210,6 +220,10 @@ export function registry() {
       if (process.effort !== request.effort) {
         yield* attempt(() => process.session.setEffort(request.effort))
         process.effort = request.effort
+      }
+      if (process.fast !== (request.fast === true)) {
+        yield* attempt(() => process.session.setFast(request.fast === true))
+        process.fast = request.fast === true
       }
       return process
     })

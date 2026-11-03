@@ -23,9 +23,11 @@ export const register = Effect.fn("ClaudeAISDK.register")(function* (ctx: Contex
           headers: evt.options.headers,
           body: evt.options.body,
         })
+        const fast = evt.options.fast === true
         // Always replace: until the opencode fix ships, the npm fallback has already set the placeholder here
         evt.sdk = {
-          languageModel: (modelID: string) => new ClaudeAgentLanguageModel.Model(modelID, dependencies, connection),
+          languageModel: (modelID: string) =>
+            new ClaudeAgentLanguageModel.Model(modelID, dependencies, connection, fast),
         }
       }),
     { providerID: ClaudeProvider.ID },
