@@ -83,6 +83,8 @@ If you have several interchangeable accounts, OpenCode can move chats between th
    }
    ```
 
+An account that hits a limit is skipped until the limit resets, so new chats and subagents don't start Claude on it again. A weekly Opus or Sonnet limit only skips that account for that model family. When every account is at its limit, requests fail at once with the earliest reset time instead of retrying.
+
 ## Use fast mode
 
 The Agent SDK keeps fast mode off unless it is opted in. Add an Opus entry with `fast` to your `opencode.json`:

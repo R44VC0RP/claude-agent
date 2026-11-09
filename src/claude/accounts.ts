@@ -16,7 +16,32 @@ export interface Interface {
 
 const LAST = "last-account"
 
+// Weekly Opus and Sonnet limits only stop that model family. Every other limit stops the whole account.
+const FAMILY = { seven_day_opus: "opus", seven_day_sonnet: "sonnet" } as const
+
+function family(model: string) {
+  return Object.values(FAMILY).find((name) => model.toLowerCase().includes(name))
+}
+
 export function make(input: { readonly sessions: ClaudeSessions.Interface; readonly storage: Storage }) {
+  // Accounts at a limit, keyed by folder or by folder and model family, until the limit resets.
+  // Kept in memory, so a burst of subagents skips a spent account instead of starting Claude on it.
+  const limited = new Map<string, number>()
+
+  const until = (dir: string, model: string) => {
+    const kind = family(model)
+    const resets = [limited.get(dir), kind ? limited.get(`${dir}\n${kind}`) : undefined]
+    const time = Date.now()
+    const active = resets.filter((reset): reset is number => reset !== undefined && reset > time)
+    return active.length ? Math.max(...active) : undefined
+  }
+
+  const remember = (dir: string, error: ClaudeAgentError.Failure) => {
+    if (!error.resetsAt) return
+    const kind = FAMILY[error.limitType as keyof typeof FAMILY] as string | undefined
+    limited.set(kind ? `${dir}\n${kind}` : dir, error.resetsAt)
+  }
+
   const read = Effect.fn("ClaudeAccounts.read")(function* (key: string) {
     return Option.getOrUndefined(Schema.decodeUnknownOption(Schema.String)(yield* input.storage.get(key)))
   })
@@ -36,7 +61,16 @@ export function make(input: { readonly sessions: ClaudeSessions.Interface; reado
     const parent = !own && request.sourceID ? yield* read(`accounts/${request.sourceID}`) : undefined
     const from = own ?? parent ?? last
     const start = from ? Math.max(0, configDirs.indexOf(from)) : 0
-    const dirs = [...configDirs.slice(start), ...configDirs.slice(0, start)]
+    const order = [...configDirs.slice(start), ...configDirs.slice(0, start)]
+    const dirs = order.filter((dir) => until(dir, request.model) === undefined)
+    if (dirs.length === 0) {
+      const next = Math.min(...order.map((dir) => until(dir, request.model)!))
+      return yield* Effect.fail(
+        ClaudeAgentError.quota(
+          `Every Claude account is at its usage limit. The first resets at ${new Date(next).toISOString()}.`,
+        ),
+      )
+    }
     for (let i = 0; i < dirs.length; i++) {
       const dir = dirs[i]
       const attempt = watch(request.emit)
@@ -53,6 +87,7 @@ export function make(input: { readonly sessions: ClaudeSessions.Interface; reado
         attempt.flush()
         return
       }
+      if (error.limited) remember(dir, error)
       // Only a limit is worth another account. A retry after Claude has shown output would repeat that output.
       if (!error.limited || attempt.shown() || i === dirs.length - 1) {
         attempt.flush()

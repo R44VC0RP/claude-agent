@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk"
+import { APICallError } from "@ai-sdk/provider"
+import type { SDKMessage, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk"
 import os from "node:os"
 import path from "node:path"
 import { Effect } from "effect"
@@ -12,9 +13,11 @@ import { TestSessions } from "../lib/sessions.js"
 const first = TestSessions.prompt("Remember the marker COPPER-OTTER. Reply only with that marker.")
 const pool = { configDir: ["/accounts/a", "/accounts/b", "/accounts/c"] }
 const resetsAt = 1792800000
+// A reset that has not happened yet, so the account stays limited for the rest of the test.
+const later = Math.floor(Date.now() / 1000) + 3600
 
 // A recorded failed turn, rewritten into the messages Claude Code sends when a subscription limit refuses it.
-function limitTurn() {
+function limitTurn(limit: Pick<SDKRateLimitInfo, "rateLimitType" | "resetsAt"> = {}) {
   const turn = FakeClaude.expectTurn({ recording: "api-error" })
   const replies: SDKMessage[] = []
   for (const message of turn.replies as SDKMessage[]) {
@@ -23,7 +26,7 @@ function limitTurn() {
         type: "rate_limit_event",
         uuid: crypto.randomUUID(),
         session_id: message.session_id,
-        rate_limit_info: { status: "rejected", rateLimitType: "seven_day", resetsAt },
+        rate_limit_info: { status: "rejected", rateLimitType: "seven_day", resetsAt, ...limit },
       })
       replies.push({ ...message, error: "rate_limit" as const })
       continue
@@ -309,6 +312,83 @@ describe("Claude accounts", () => {
       expect(claude.forks[0]!.configDir).toBe("/accounts/b")
       expect(claude.runs.at(-1)!.env.CLAUDE_CONFIG_DIR).toBe("/accounts/b")
       expect(test.storage.data.get("accounts/child-a")).toBe("/accounts/b")
+      yield* test.registry.close()
+      claude.check()
+    }),
+  )
+  it.effect("an account at its limit is skipped until it resets, without starting Claude on it", () =>
+    Effect.gen(function* () {
+      const claude = FakeClaude.make([
+        FakeClaude.expectStartup(),
+        limitTurn({ resetsAt: later }),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectInterrupt(),
+      ])
+      const test = yield* TestSessions.start(claude, TestSessions.storage(), pool)
+      yield* TestSessions.reply(test.model, first)
+      // Point new chats back at the spent account, as a chat saved before the limit would.
+      test.storage.data.set("last-account", "/accounts/a")
+      const parts = yield* TestSessions.reply(test.model, first, "session-b")
+      expect(TestSessions.text(parts)).toBe("COPPER-OTTER")
+      expect(claude.runs.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual(["/accounts/a", "/accounts/b", "/accounts/b"])
+      yield* test.registry.close()
+      claude.check()
+    }),
+  )
+
+  it.effect("when every account is at its limit, the next request fails at once with a quota error", () =>
+    Effect.gen(function* () {
+      const claude = FakeClaude.make([
+        FakeClaude.expectStartup(),
+        limitTurn({ resetsAt: later }),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectStartup(),
+        limitTurn({ resetsAt: later + 60 }),
+        FakeClaude.expectInterrupt(),
+      ])
+      const test = yield* TestSessions.start(claude, TestSessions.storage(), {
+        configDir: ["/accounts/a", "/accounts/b"],
+      })
+      const refused = yield* TestSessions.reply(test.model, first)
+      const shown = refused.find((part) => part.type === "error")?.error
+      // OpenCode retries plain errors, but not a 429 quota error.
+      expect(APICallError.isInstance(shown)).toBe(true)
+      expect((shown as APICallError).statusCode).toBe(429)
+      expect((shown as APICallError).isRetryable).toBe(false)
+      const error = yield* TestSessions.reply(test.model, first, "session-b").pipe(Effect.flip)
+      expect(APICallError.isInstance(error.cause)).toBe(true)
+      expect(String(error.cause)).toContain("Every Claude account is at its usage limit")
+      expect(String(error.cause)).toContain(new Date(later * 1000).toISOString())
+      expect(claude.runs.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual(["/accounts/a", "/accounts/b"])
+      yield* test.registry.close()
+      claude.check()
+    }),
+  )
+
+  it.effect("a weekly Opus limit does not skip the account for other models", () =>
+    Effect.gen(function* () {
+      const claude = FakeClaude.make([
+        FakeClaude.expectStartup(),
+        limitTurn({ rateLimitType: "seven_day_opus", resetsAt: later }),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectInterrupt(),
+      ])
+      const test = yield* TestSessions.start(claude, TestSessions.storage(), pool)
+      yield* TestSessions.reply(test.model, first)
+      test.storage.data.set("last-account", "/accounts/a")
+      // The test model is Haiku, which the Opus limit does not cover.
+      yield* TestSessions.reply(test.model, first, "session-b")
+      expect(claude.runs.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual(["/accounts/a", "/accounts/b", "/accounts/a"])
       yield* test.registry.close()
       claude.check()
     }),
