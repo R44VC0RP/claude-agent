@@ -2,6 +2,8 @@
 
 Experimental opencode plugin that runs a user's own Claude subscription inside opencode through Claude Code, using only documented features of the Claude Agent SDK.
 
+This is a fork of [Tarquinen/opencode-claude-agent](https://github.com/Tarquinen/opencode-claude-agent) with fast mode, account rotation, and a limit cooldown: an account that hits a usage limit is skipped until it resets, and requests fail at once instead of retrying when every account is at its limit.
+
 Not intended for release. See [PLAN.md](./PLAN.md) for the research, design and order of work, [TESTING.md](./TESTING.md) for how it is tested.
 
 ## Install
@@ -12,14 +14,29 @@ Requires OpenCode 2.2.3 or newer.
 2. Install the plugin:
 
    ```sh
-   opencode plugin add github:Tarquinen/opencode-claude-agent
+   opencode plugin add github:R44VC0RP/claude-agent
    ```
 
 
-3. To disable the bundled Claude Agent provider, add `"-opencode.provider.claude-agent"` to `plugins` in `opencode.json`. Keep `"github:Tarquinen/opencode-claude-agent"` and your other plugin entries.
+3. To disable the bundled Claude Agent provider, add `"-opencode.provider.claude-agent"` to `plugins` in `opencode.json`. Keep `"github:R44VC0RP/claude-agent"` and your other plugin entries.
 4. In OpenCode, use `/connect` → **Claude Agent**, then `/models` to choose a model and effort level.
 
-To update, run `opencode plugin update github:Tarquinen/opencode-claude-agent`. To uninstall, run `opencode plugin remove github:Tarquinen/opencode-claude-agent`.
+To update, run `opencode plugin update github:R44VC0RP/claude-agent`. To uninstall, run `opencode plugin remove github:R44VC0RP/claude-agent`.
+
+### Example setup
+
+Plugin entries plus two rotating accounts, in the global `opencode.json`:
+
+```json
+{
+  "plugins": ["-opencode.provider.claude-agent", "github:R44VC0RP/claude-agent"],
+  "providers": {
+    "claude-agent": {
+      "settings": { "configDir": ["~/.claude", "~/.claude-2"] }
+    }
+  }
+}
+```
 
 ## Use a second Claude account
 
