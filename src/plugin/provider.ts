@@ -47,6 +47,9 @@ export const register = Effect.fn("ClaudeProvider.register")(function* (
 ) {
   const saved = Schema.decodeUnknownOption(Catalog)(yield* ctx.storage.get(CATALOG_KEY))
   const current = { catalog: Option.getOrElse(saved, (): Catalog => ({ models: [] })) }
+  // A chat's startup report lists models without measuring their context windows, so a model that is new to the
+  // list falls back to the default limit until the full check measures it. A check that changes nothing ends the loop.
+  const unmeasured = (models: readonly CatalogModel[]) => models.some((model) => model.contextWindow === undefined)
 
   yield* ctx.provider.transform((editor) => {
     const source = current.catalog.priceSource
@@ -75,13 +78,15 @@ export const register = Effect.fn("ClaudeProvider.register")(function* (
         current.catalog = next
         yield* ctx.storage.set(CATALOG_KEY, current.catalog)
         yield* ctx.provider.reload()
+        if (unmeasured(next.models)) yield* status.refresh().pipe(Effect.forkScoped)
       }),
     ),
     Effect.forkScoped,
   )
 
   // Without a saved list there is no model to pick, so the first message that would fill it can never be sent.
-  if (current.catalog.models.length === 0 && (yield* ctx.integration.connection.active(ID))) {
+  const empty = current.catalog.models.length === 0
+  if ((empty || unmeasured(current.catalog.models)) && (yield* ctx.integration.connection.active(ID))) {
     yield* status.refresh().pipe(Effect.forkScoped)
   }
 })
