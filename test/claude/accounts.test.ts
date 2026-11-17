@@ -65,7 +65,30 @@ describe("Claude accounts", () => {
     expect(ClaudeQueryOptions.configDirs(undefined)).toEqual([])
     const env = ClaudeQueryOptions.connectionEnv({ settings: { configDir: ["~/.claude-1", "/tmp/claude-2"] } })
     expect(env).toEqual({ CLAUDE_CONFIG_DIR: home })
+    // Claude Code's own folder is the usual login, which it only finds without CLAUDE_CONFIG_DIR.
+    expect(ClaudeQueryOptions.connectionEnv({ settings: { configDir: ["~/.claude", "/tmp/claude-2"] } })).toEqual({})
   })
+
+  it.effect("the usual login in ~/.claude runs without CLAUDE_CONFIG_DIR and rotates like any account", () =>
+    Effect.gen(function* () {
+      const claude = FakeClaude.make([
+        FakeClaude.expectStartup(),
+        limitTurn(),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectInterrupt(),
+      ])
+      const usual = path.join(os.homedir(), ".claude")
+      const test = yield* TestSessions.start(claude, TestSessions.storage(), { configDir: [usual, "/accounts/b"] })
+      const parts = yield* TestSessions.reply(test.model, first)
+      expect(TestSessions.text(parts)).toBe("COPPER-OTTER")
+      expect(claude.runs.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual([undefined, "/accounts/b"])
+      expect(test.storage.data.get("accounts/session-a")).toBe("/accounts/b")
+      yield* test.registry.close()
+      claude.check()
+    }),
+  )
 
   it.effect("a refused chat retries unseen on the next account and stays there", () =>
     Effect.gen(function* () {

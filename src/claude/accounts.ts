@@ -3,6 +3,7 @@ export * as ClaudeAccounts from "./accounts.js"
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk"
 import { Effect, Option, Schema } from "effect"
 import { ClaudeAgentError } from "../language-model/claude-agent-error.js"
+import { ClaudeQueryOptions } from "./query-options.js"
 import type { ClaudeSessions } from "./sessions.js"
 
 export interface Storage {
@@ -50,9 +51,10 @@ export function make(input: { readonly sessions: ClaudeSessions.Interface; reado
     request: ClaudeSessions.Request,
     configDirs: readonly string[],
   ) {
-    const connection = request.connection
+    // The login check's folder, the first one, is replaced by each attempt's own.
+    const { CLAUDE_CONFIG_DIR: _, ...connection } = request.connection ?? {}
     // An API key or token logs in the same way whatever the folder, so those requests never rotate.
-    if (configDirs.length < 2 || connection?.ANTHROPIC_API_KEY || connection?.ANTHROPIC_AUTH_TOKEN) {
+    if (configDirs.length < 2 || connection.ANTHROPIC_API_KEY || connection.ANTHROPIC_AUTH_TOKEN) {
       return yield* input.sessions.run(request)
     }
     const own = request.sessionID ? yield* read(`accounts/${request.sessionID}`) : undefined
@@ -76,7 +78,7 @@ export function make(input: { readonly sessions: ClaudeSessions.Interface; reado
       const attempt = watch(request.emit)
       yield* input.sessions.run({
         ...request,
-        connection: { ...connection, CLAUDE_CONFIG_DIR: dir },
+        connection: { ...connection, ...ClaudeQueryOptions.configEnv(dir) },
         emit: attempt.emit,
       })
       const error = attempt.error()

@@ -42,8 +42,7 @@ export function connectionEnv(connection: {
   if (typeof settings.headerTimeout === "number") env.API_TIMEOUT_MS = String(settings.headerTimeout)
   if (typeof settings.chunkTimeout === "number") env.CLAUDE_STREAM_IDLE_TIMEOUT_MS = String(settings.chunkTimeout)
   // ClaudeAccounts picks the folder for each request. The login check and model list use the first.
-  const dirs = configDirs(settings.configDir)
-  if (dirs.length > 0) env.CLAUDE_CONFIG_DIR = dirs[0]
+  Object.assign(env, configEnv(configDirs(settings.configDir)[0]))
   const headers: string[] = []
   for (const [name, value] of Object.entries(connection.headers ?? {})) {
     headers.push(`${name}: ${value}`)
@@ -65,6 +64,12 @@ export function configDirs(value: unknown) {
     dirs.push(path.resolve(dir))
   }
   return dirs
+}
+
+// On macOS, Claude Code only finds the login in its own folder while CLAUDE_CONFIG_DIR is unset: naming that folder
+// looks for a separate Keychain entry, which has no login. So ~/.claude in configDir means the usual login.
+export function configEnv(dir: string | undefined): { CLAUDE_CONFIG_DIR?: string } {
+  return dir === undefined || dir === path.join(os.homedir(), ".claude") ? {} : { CLAUDE_CONFIG_DIR: dir }
 }
 
 export function base(input: {
