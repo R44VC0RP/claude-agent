@@ -8,6 +8,8 @@ import which from "which"
 import { ClaudeQueryOptions } from "../src/claude/query-options.js"
 
 interface Limit {
+  // The window's name in Claude Code's usage data, such as five_hour. Model windows are `model:<name>`.
+  id: string
   label: string
   percent: number
   resetsAt?: string
@@ -44,7 +46,7 @@ async function read(executable: string, dir: string | undefined): Promise<Accoun
     prompt: idle(),
     options: {
       pathToClaudeCodeExecutable: executable,
-      env: { ...process.env, ...(dir ? { CLAUDE_CONFIG_DIR: dir } : {}) },
+      env: { ...process.env, ...ClaudeQueryOptions.configEnv(dir) },
       settingSources: [],
       settings: { disableAllHooks: true },
       strictMcpConfig: true,
@@ -66,16 +68,22 @@ async function read(executable: string, dir: string | undefined): Promise<Accoun
       return { ...identity, limits: [], error: "This login has no plan limits (API key or cloud provider)." }
     }
     const limits = new Map<string, Limit>()
-    const add = (label: string, window?: { utilization: number | null; resets_at: string | null } | null) => {
+    const add = (
+      id: string,
+      label: string,
+      window?: { utilization: number | null; resets_at: string | null } | null,
+    ) => {
       if (!window || window.utilization === null) return
       const resetsAt = window.resets_at ? new Date(window.resets_at).toISOString() : undefined
-      limits.set(label, { label, percent: window.utilization, resetsAt })
+      limits.set(label, { id, label, percent: window.utilization, resetsAt })
     }
-    add("5-hour", rates.five_hour)
-    add("Weekly", rates.seven_day)
-    add("Weekly Opus", rates.seven_day_opus)
-    add("Weekly Sonnet", rates.seven_day_sonnet)
-    for (const scoped of rates.model_scoped ?? []) add(`Weekly ${scoped.display_name}`, scoped)
+    add("five_hour", "5-hour", rates.five_hour)
+    add("seven_day", "Weekly", rates.seven_day)
+    add("seven_day_opus", "Weekly Opus", rates.seven_day_opus)
+    add("seven_day_sonnet", "Weekly Sonnet", rates.seven_day_sonnet)
+    for (const scoped of rates.model_scoped ?? []) {
+      add(`model:${scoped.display_name}`, `Weekly ${scoped.display_name}`, scoped)
+    }
     return { ...identity, limits: [...limits.values()] }
   } finally {
     stop.resolve()
@@ -100,7 +108,10 @@ if (!executable) {
   process.exit(0)
 }
 const given = ClaudeQueryOptions.configDirs(process.argv.slice(2))
-const dirs: Array<string | undefined> = given.length > 0 ? given : await configured()
+// ~/.claude is the usual login, which has no folder of its own to name.
+const dirs = (given.length > 0 ? given : await configured()).map(
+  (dir) => ClaudeQueryOptions.configEnv(dir).CLAUDE_CONFIG_DIR,
+)
 if (dirs.length === 0) dirs.push(undefined)
 console.log(JSON.stringify({ accounts: await Promise.all(dirs.map((dir) => account(executable, dir))) }))
 process.exit(0)

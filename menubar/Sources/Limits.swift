@@ -1,11 +1,11 @@
 import Foundation
 
 struct Limit: Decodable, Identifiable {
+    /// The window's name in Claude Code's usage data, such as `five_hour`.
+    let id: String
     let label: String
     let percent: Double
     let resetsAt: Date?
-
-    var id: String { label }
 }
 
 struct Account: Decodable, Identifiable {
@@ -20,6 +20,8 @@ struct Account: Decodable, Identifiable {
     var name: String { email ?? dir.map { ($0 as NSString).lastPathComponent } ?? "Default login" }
     /// The limit closest to running out, which is the one that stops the account.
     var highest: Double? { limits.map(\.percent).max() }
+    /// The limit Claude Code's /limit-reset refills, once it is reached and a reset has something to give back.
+    var resettable: Limit? { limits.first { $0.id == "five_hour" && $0.percent >= 100 } }
 }
 
 struct Report: Decodable {

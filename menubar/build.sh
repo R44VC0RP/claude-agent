@@ -29,6 +29,7 @@ cat > "$app/Contents/Info.plist" <<EOF
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSUIElement</key><true/>
+  <key>ClaudePath</key><string>$claude</string>
   <key>LimitsCommand</key>
   <array>
     <string>/usr/bin/env</string>

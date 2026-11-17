@@ -112,6 +112,8 @@ On macOS, `menubar/build.sh` builds **Claude Limits.app** into `~/Applications`.
 menubar/build.sh && open "$HOME/Applications/Claude Limits.app"
 ```
 
+When an account reaches its 5-hour limit, its section shows **Reset 5-hour limit…**. After you confirm, it opens Claude Code in Terminal on that account and runs `/limit-reset`, which uses the account's limit reset right away if it has one. Nothing runs it on its own.
+
 The app runs `menubar/limits.ts` from this folder with Bun, so rebuild it after moving the folder.
 
 ## Use fast mode

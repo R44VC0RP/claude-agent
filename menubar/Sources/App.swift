@@ -88,6 +88,8 @@ struct Panel: View {
 
 struct AccountView: View {
     let account: Account
+    @State private var confirming = false
+    @State private var problem: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -126,6 +128,28 @@ struct AccountView: View {
                     }
                 }
             }
+            if account.resettable != nil {
+                if confirming {
+                    // Claude Code uses the reset as soon as the command runs, so the question is asked here.
+                    Text("Claude Code opens in Terminal and uses this account's limit reset right away, if it has one.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Button("Reset now") {
+                            confirming = false
+                            problem = Reset.open(account)
+                        }
+                        Button("Cancel") { confirming = false }
+                    }
+                } else {
+                    Button("Reset 5-hour limit…") { confirming = true }
+                }
+            }
+            if let problem {
+                Text(problem)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -146,7 +170,7 @@ struct Bar: View {
         GeometryReader { box in
             ZStack(alignment: .leading) {
                 Capsule().fill(.quaternary)
-                Capsule().fill(color).frame(width: max(4, box.size.width * min(percent, 100) / 100))
+                Capsule().fill(color).frame(width: percent > 0 ? max(4, box.size.width * min(percent, 100) / 100) : 0)
             }
         }
         .frame(height: 6)
@@ -157,5 +181,33 @@ struct Bar: View {
         if percent >= 100 { return .red }
         if percent >= 80 { return .orange }
         return .primary
+    }
+}
+
+/// Applying a limit reset is Claude Code's own /limit-reset command, which only runs in its terminal interface.
+enum Reset {
+    /// Opens Claude Code in Terminal on one account and runs /limit-reset there.
+    /// - Returns: What went wrong, or nil once Terminal was asked to open.
+    static func open(_ account: Account) -> String? {
+        let claude = UserDefaults.standard.string(forKey: "claude")
+            ?? Bundle.main.object(forInfoDictionaryKey: "ClaudePath") as? String
+        guard let claude else { return "Claude Code's path is not set. Rebuild with menubar/build.sh." }
+        let quote = { (text: String) in "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        do {
+            // Claude Code asks once whether it trusts the folder it starts in, so start it in one that holds only this script.
+            let folder = try FileManager.default
+                .url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+                .appendingPathComponent("Claude Limits")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let script = folder.appendingPathComponent("Reset 5-hour limit.command")
+            var lines = ["#!/bin/zsh", "cd \(quote(folder.path))"]
+            if let dir = account.dir { lines.append("export CLAUDE_CONFIG_DIR=\(quote(dir))") }
+            lines.append("exec \(quote(claude)) /limit-reset")
+            try (lines.joined(separator: "\n") + "\n").write(to: script, atomically: true, encoding: .utf8)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
+            return NSWorkspace.shared.open(script) ? nil : "Could not open Terminal."
+        } catch {
+            return error.localizedDescription
+        }
     }
 }
