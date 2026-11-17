@@ -32,7 +32,7 @@ Plugin entries plus two rotating accounts, in the global `opencode.json`:
   "plugins": ["-opencode.provider.claude-agent", "github:R44VC0RP/claude-agent"],
   "providers": {
     "claude-agent": {
-      "settings": { "configDir": ["~/.claude", "~/.claude-2"] }
+      "settings": { "configDir": ["~/.claude-1", "~/.claude-2"] }
     }
   }
 }
@@ -101,6 +101,18 @@ If you have several interchangeable accounts, OpenCode can move chats between th
    ```
 
 An account that hits a limit is skipped until the limit resets, so new chats and subagents don't start Claude on it again. A weekly Opus or Sonnet limit only skips that account for that model family. When every account is at its limit, requests fail at once with the earliest reset time instead of retrying.
+
+On macOS, your usual login in `~/.claude` can't be one of the folders: Claude Code only finds that login when no folder is set. Sign in to every rotating account in a folder of its own.
+
+## See limits in the menu bar
+
+On macOS, `menubar/build.sh` builds **Claude Limits.app** into `~/Applications`. It shows a level bar and the highest limit of each account in the menu bar, and a panel with every limit and its reset time. It reads the accounts from `configDir` in your global `opencode.json`, or your usual login when none is set, and sends no prompts.
+
+```sh
+menubar/build.sh && open "$HOME/Applications/Claude Limits.app"
+```
+
+The app runs `menubar/limits.ts` from this folder with Bun, so rebuild it after moving the folder.
 
 ## Use fast mode
 

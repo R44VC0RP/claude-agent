@@ -8,5 +8,5 @@
     "noUncheckedIndexedAccess": false,
     "lib": ["ESNext", "DOM", "DOM.Iterable"]
   },
-  "include": ["server.ts", "src", "test"]
+  "include": ["server.ts", "src", "test", "menubar"]
 }
