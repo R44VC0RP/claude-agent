@@ -1,5 +1,6 @@
 import { define } from "@opencode/plugin/effect/plugin"
 import { Effect, Stream } from "effect"
+import { ClaudeAccounts } from "./claude/accounts.js"
 import { ClaudeIO } from "./claude/io.js"
 import { ClaudeStatus } from "./claude/status.js"
 import { ClaudeSessions } from "./claude/sessions.js"
@@ -31,8 +32,9 @@ export const make = (io: ClaudeIO.Interface, registry = ClaudeSessions.registry(
         )
       yield* ClaudeProvider.register(ctx, status, io)
       yield* ClaudeIntegration.register(ctx, status)
-      yield* ClaudeAISDK.register(ctx, sessions)
-      yield* ClaudeSessionHooks.register(ctx)
+      const accounts = ClaudeAccounts.make({ sessions, storage: ctx.storage })
+      yield* ClaudeAISDK.register(ctx, accounts)
+      yield* ClaudeSessionHooks.register(ctx, accounts)
       yield* ClaudeInstructions.register(ctx)
     }),
   })

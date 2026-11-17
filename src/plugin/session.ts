@@ -1,14 +1,19 @@
 export * as ClaudeSessionHooks from "./session.js"
 
 import type { Context } from "@opencode/plugin/effect/plugin"
+import type { SessionRetryDecision } from "@opencode/plugin/effect/session"
 import { Effect, Schema } from "effect"
+import type { ClaudeAccounts } from "../claude/accounts.js"
 import { RequestKind } from "../language-model/request-kind.js"
 import { ClaudeProvider } from "./provider.js"
 
 // OpenCode records stopped tools (including a plain permission rejection) with this structured error.
 const isAborted = Schema.is(Schema.Struct({ error: Schema.Struct({ type: Schema.Literal("aborted") }) }))
 
-export const register = Effect.fn("ClaudeSessionHooks.register")(function* (ctx: Context) {
+export const register = Effect.fn("ClaudeSessionHooks.register")(function* (
+  ctx: Context,
+  accounts: ClaudeAccounts.Interface,
+) {
   yield* ctx.session.hook(
     "model.request",
     (event) =>
@@ -44,12 +49,20 @@ export const register = Effect.fn("ClaudeSessionHooks.register")(function* (ctx:
     { providerID: ClaudeProvider.ID },
   )
   // Claude Code already retries API failures. Replaying the whole turn here also retries permanent billing errors.
+  // A usage limit is the exception: it lifts at a known time, or another account is free, so the chat carries on then.
   yield* ctx.session.hook(
     "retry",
     (event) =>
       Effect.sync(() => {
-        event.decision = { retry: false }
+        event.decision = retryDecision(accounts.resumeAt(event.sessionID), Date.now(), Math.random())
       }),
     { providerID: ClaudeProvider.ID },
   )
 })
+
+// A limit that resets later is given a margin, spread out so a burst of waiting chats does not resume in one instant.
+export function retryDecision(resumeAt: number | undefined, now: number, spread: number): SessionRetryDecision {
+  if (resumeAt === undefined) return { retry: false }
+  if (resumeAt <= now) return { retry: true, delay: 0 }
+  return { retry: true, delay: resumeAt - now + 15_000 + Math.floor(spread * 30_000) }
+}

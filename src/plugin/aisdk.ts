@@ -2,16 +2,14 @@ export * as ClaudeAISDK from "./aisdk.js"
 
 import type { Context } from "@opencode/plugin/effect/plugin"
 import { Effect } from "effect"
-import { ClaudeAccounts } from "../claude/accounts.js"
+import type { ClaudeAccounts } from "../claude/accounts.js"
 import { ClaudeQueryOptions } from "../claude/query-options.js"
-import type { ClaudeSessions } from "../claude/sessions.js"
 import { ClaudeAgentLanguageModel } from "../language-model/claude-agent-language-model.js"
 import { ClaudeProvider } from "./provider.js"
 
-export const register = Effect.fn("ClaudeAISDK.register")(function* (ctx: Context, sessions: ClaudeSessions.Interface) {
+export const register = Effect.fn("ClaudeAISDK.register")(function* (ctx: Context, accounts: ClaudeAccounts.Interface) {
   const context = yield* Effect.context<never>()
   const run = Effect.runPromiseWith(context)
-  const accounts = ClaudeAccounts.make({ sessions, storage: ctx.storage })
   yield* ctx.aisdk.hook(
     "sdk",
     (evt) =>

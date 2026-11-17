@@ -3,11 +3,17 @@ import { APICallError } from "@ai-sdk/provider"
 import type { SDKMessage, SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk"
 import os from "node:os"
 import path from "node:path"
+import { Location, Model } from "@opencode/plugin/effect"
 import { Effect } from "effect"
 import { ClaudeQueryOptions } from "../../src/claude/query-options.js"
+import { ClaudeSessions } from "../../src/claude/sessions.js"
 import { RequestKind } from "../../src/language-model/request-kind.js"
+import { ClaudeProvider } from "../../src/plugin/provider.js"
+import { ClaudeSessionHooks } from "../../src/plugin/session.js"
 import { it } from "../lib/effect.js"
 import { FakeClaude } from "../lib/fake-claude.js"
+import { FakeIO } from "../lib/fake-io.js"
+import { TestOpenCode } from "../lib/opencode.js"
 import { TestSessions } from "../lib/sessions.js"
 
 const first = TestSessions.prompt("Remember the marker COPPER-OTTER. Reply only with that marker.")
@@ -89,6 +95,14 @@ describe("Claude accounts", () => {
       claude.check()
     }),
   )
+
+  test("a chat stopped by a limit retries when it can carry on, and other failures do not retry", () => {
+    expect(ClaudeSessionHooks.retryDecision(undefined, 1_000, 0)).toEqual({ retry: false })
+    expect(ClaudeSessionHooks.retryDecision(900, 1_000, 0)).toEqual({ retry: true, delay: 0 })
+    // A reset that is still ahead is waited for, with a margin that differs between chats.
+    expect(ClaudeSessionHooks.retryDecision(61_000, 1_000, 0)).toEqual({ retry: true, delay: 75_000 })
+    expect(ClaudeSessionHooks.retryDecision(61_000, 1_000, 0.5)).toEqual({ retry: true, delay: 90_000 })
+  })
 
   it.effect("a refused chat retries unseen on the next account and stays there", () =>
     Effect.gen(function* () {
@@ -190,6 +204,8 @@ describe("Claude accounts", () => {
       expect(TestSessions.text(one)).toBe("COPPER-OTTER")
       expect(one.at(-1)?.type).toBe("error")
       expect(test.storage.data.has("accounts/session-a")).toBe(false)
+      // Another account is free, so the chat can carry on at once.
+      expect(test.accounts.resumeAt("session-a")).toBeLessThanOrEqual(Date.now())
       // The next turn tries the first account again, which refuses unseen, then moves on.
       const two = yield* TestSessions.reply(test.model, TestSessions.followup())
       expect(two.some((part) => part.type === "error")).toBe(false)
@@ -247,6 +263,7 @@ describe("Claude accounts", () => {
       const test = yield* TestSessions.start(claude, TestSessions.storage(), pool)
       const parts = yield* TestSessions.reply(test.model, first)
       expect(String(parts.find((part) => part.type === "error")?.error)).toContain("claude-does-not-exist")
+      expect(test.accounts.resumeAt("session-a")).toBeUndefined()
       expect(claude.runs.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual(["/accounts/a", "/accounts/b"])
       expect(test.storage.data.has("accounts/session-a")).toBe(false)
       expect(test.storage.data.has("last-account")).toBe(false)
@@ -383,10 +400,14 @@ describe("Claude accounts", () => {
       expect(APICallError.isInstance(shown)).toBe(true)
       expect((shown as APICallError).statusCode).toBe(429)
       expect((shown as APICallError).isRetryable).toBe(false)
+      // The chat can carry on when the first limit resets. The answer is only given once.
+      expect(test.accounts.resumeAt("session-a")).toBe(later * 1000)
+      expect(test.accounts.resumeAt("session-a")).toBeUndefined()
       const error = yield* TestSessions.reply(test.model, first, "session-b").pipe(Effect.flip)
       expect(APICallError.isInstance(error.cause)).toBe(true)
       expect(String(error.cause)).toContain("Every Claude account is at its usage limit")
       expect(String(error.cause)).toContain(new Date(later * 1000).toISOString())
+      expect(test.accounts.resumeAt("session-b")).toBe(later * 1000)
       expect(claude.runs.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual(["/accounts/a", "/accounts/b"])
       yield* test.registry.close()
       claude.check()
@@ -466,5 +487,46 @@ describe("Claude accounts", () => {
       yield* test.registry.close()
       claude.check()
     }),
+  )
+  it.live(
+    "in OpenCode, a chat stopped mid-reply by a limit carries on by itself on the other account",
+    () =>
+      Effect.gen(function* () {
+        const claude = FakeClaude.make(
+          [
+            FakeClaude.expectStartup(),
+            limitAfterText(),
+            limitTurn(),
+            FakeClaude.expectInterrupt(),
+            FakeClaude.expectStartup(),
+            FakeClaude.expectTurn({ index: 1 }),
+            FakeClaude.expectInterrupt(),
+          ],
+          { probes: true },
+        )
+        const registry = ClaudeSessions.registry()
+        yield* Effect.addFinalizer(() => registry.close())
+        const test = yield* TestOpenCode.start({
+          io: FakeIO.make({ claude }),
+          registry,
+          config: { providers: { [ClaudeProvider.ID]: { settings: { configDir: ["/accounts/a", "/accounts/b"] } } } },
+        })
+        yield* TestOpenCode.connect(test.opencode)
+        const session = yield* test.opencode.session.create({
+          title: "Limit test",
+          location: { directory: Location.PublicRef.fields.directory.make(test.directory) },
+          model: Model.Ref.make({ providerID: ClaudeProvider.ID, id: Model.ID.make("haiku") }),
+        })
+        // One message from the user. The limit ends its first reply, and nobody sends a second message.
+        yield* test.opencode.session.prompt({ sessionID: session.id, text: "Remember COPPER-OTTER." })
+        yield* test.opencode.session.wait({ sessionID: session.id })
+        const chats = claude.runs.filter((run) => run.args.includes("--include-partial-messages"))
+        expect(chats.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual(["/accounts/a", "/accounts/b"])
+        const history = yield* test.opencode.session.export({ sessionID: session.id })
+        expect(history.messages.findLast((message) => message.type === "assistant")?.finish).not.toBe("error")
+        yield* registry.close()
+        claude.check()
+      }),
+    20_000,
   )
 })
