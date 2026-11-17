@@ -49,18 +49,19 @@ export function followup(text = "What was the marker? Reply only with it."): Lan
 export const model = (sessions: ClaudeSessions.Interface, settings?: Record<string, unknown>) =>
   build((request) => sessions.run(request), settings)
 
-export const rotating = (accounts: ClaudeAccounts.Interface, settings?: Record<string, unknown>) => {
+export const rotating = (accounts: ClaudeAccounts.Interface, settings?: Record<string, unknown>, modelID?: string) => {
   const configDirs = ClaudeQueryOptions.configDirs(settings?.configDir)
-  return build((request) => accounts.run(request, configDirs), settings)
+  return build((request) => accounts.run(request, configDirs), settings, modelID)
 }
 
 const build = Effect.fn(function* (
   run: (request: ClaudeSessions.Request) => Effect.Effect<void, Error>,
   settings?: Record<string, unknown>,
+  modelID = "haiku",
 ) {
   const context = yield* Effect.context<never>()
   return new ClaudeAgentLanguageModel.Model(
-    "haiku",
+    modelID,
     { run: (request, signal) => Effect.runPromiseWith(context)(run(request), { signal }) },
     ClaudeQueryOptions.connectionEnv({ settings }),
   )

@@ -416,4 +416,55 @@ describe("Claude accounts", () => {
       claude.check()
     }),
   )
+  it.effect("a weekly limit only skips the account for the model family that hit it", () =>
+    Effect.gen(function* () {
+      const claude = FakeClaude.make([
+        FakeClaude.expectStartup(),
+        // The weekly Fable limit arrives under this name, which does not say which family it is.
+        limitTurn({ rateLimitType: "seven_day_overage_included", resetsAt: later }),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectInterrupt(),
+      ])
+      const test = yield* TestSessions.start(claude, TestSessions.storage(), pool)
+      const fable = yield* TestSessions.rotating(test.accounts, pool, "fable")
+      yield* TestSessions.reply(fable, first)
+      test.storage.data.set("last-account", "/accounts/a")
+      const opus = yield* TestSessions.rotating(test.accounts, pool, "opus")
+      const parts = yield* TestSessions.reply(opus, first, "session-b")
+      expect(TestSessions.text(parts)).toBe("COPPER-OTTER")
+      expect(claude.runs.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual(["/accounts/a", "/accounts/b", "/accounts/a"])
+      yield* test.registry.close()
+      claude.check()
+    }),
+  )
+
+  it.effect("a 5-hour limit skips the account for every model", () =>
+    Effect.gen(function* () {
+      const claude = FakeClaude.make([
+        FakeClaude.expectStartup(),
+        limitTurn({ rateLimitType: "five_hour", resetsAt: later }),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectStartup(),
+        FakeClaude.expectTurn(),
+        FakeClaude.expectInterrupt(),
+        FakeClaude.expectInterrupt(),
+      ])
+      const test = yield* TestSessions.start(claude, TestSessions.storage(), pool)
+      const fable = yield* TestSessions.rotating(test.accounts, pool, "fable")
+      yield* TestSessions.reply(fable, first)
+      test.storage.data.set("last-account", "/accounts/a")
+      const opus = yield* TestSessions.rotating(test.accounts, pool, "opus")
+      yield* TestSessions.reply(opus, first, "session-b")
+      expect(claude.runs.map((run) => run.env.CLAUDE_CONFIG_DIR)).toEqual(["/accounts/a", "/accounts/b", "/accounts/b"])
+      yield* test.registry.close()
+      claude.check()
+    }),
+  )
 })

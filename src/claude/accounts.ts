@@ -17,11 +17,11 @@ export interface Interface {
 
 const LAST = "last-account"
 
-// Weekly Opus and Sonnet limits only stop that model family. Every other limit stops the whole account.
-const FAMILY = { seven_day_opus: "opus", seven_day_sonnet: "sonnet" } as const
-
+// Only the 5-hour limit is known to stop every model. A weekly limit can belong to one model family (Opus, Sonnet,
+// or a newer one such as Fable, which Claude Code reports without naming it), so it only stops the family that hit it.
+// If it does cover every model, each other family finds that out with one refused request of its own.
 function family(model: string) {
-  return Object.values(FAMILY).find((name) => model.toLowerCase().includes(name))
+  return /opus|sonnet|haiku|fable|mythos/.exec(model.toLowerCase())?.[0]
 }
 
 export function make(input: { readonly sessions: ClaudeSessions.Interface; readonly storage: Storage }) {
@@ -37,9 +37,11 @@ export function make(input: { readonly sessions: ClaudeSessions.Interface; reado
     return active.length ? Math.max(...active) : undefined
   }
 
-  const remember = (dir: string, error: ClaudeAgentError.Failure) => {
+  const remember = (dir: string, model: string, error: ClaudeAgentError.Failure) => {
     if (!error.resetsAt) return
-    const kind = FAMILY[error.limitType as keyof typeof FAMILY] as string | undefined
+    // seven_day_opus and seven_day_sonnet name their family, whichever model the request used.
+    const named = /opus|sonnet/.exec(error.limitType ?? "")?.[0]
+    const kind = error.limitType === "five_hour" ? undefined : (named ?? family(model))
     limited.set(kind ? `${dir}\n${kind}` : dir, error.resetsAt)
   }
 
@@ -89,7 +91,7 @@ export function make(input: { readonly sessions: ClaudeSessions.Interface; reado
         attempt.flush()
         return
       }
-      if (error.limited) remember(dir, error)
+      if (error.limited) remember(dir, request.model, error)
       // Only a limit is worth another account. A retry after Claude has shown output would repeat that output.
       if (!error.limited || attempt.shown() || i === dirs.length - 1) {
         attempt.flush()

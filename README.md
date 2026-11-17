@@ -100,7 +100,7 @@ If you have several interchangeable accounts, OpenCode can move chats between th
    }
    ```
 
-An account that hits a limit is skipped until the limit resets, so new chats and subagents don't start Claude on it again. A weekly Opus or Sonnet limit only skips that account for that model family. When every account is at its limit, requests fail at once with the earliest reset time instead of retrying.
+An account that hits a limit is skipped until the limit resets, so new chats and subagents don't start Claude on it again. A weekly limit only skips that account for the model family that hit it, such as Fable, and the 5-hour limit skips it for every model. When every account is at its limit, requests fail at once with the earliest reset time instead of retrying.
 
 To rotate with the login you already have, list `~/.claude` as one of the folders. It needs no second sign-in.
 
