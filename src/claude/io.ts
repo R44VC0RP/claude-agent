@@ -1,7 +1,9 @@
 export * as ClaudeIO from "./io.js"
 
 import type { Options } from "@anthropic-ai/claude-agent-sdk"
+import { accessSync, constants } from "node:fs"
 import { readdir, stat } from "node:fs/promises"
+import os from "node:os"
 import path from "node:path"
 import { Worker } from "node:worker_threads"
 import whichPkg from "which"
@@ -19,8 +21,26 @@ export interface Interface {
   readonly remove: (sessionID: string, configDir?: string) => Promise<void>
 }
 
+// An OpenCode started as a background service can have a bare PATH (/usr/bin:/bin), which leaves out where Claude Code
+// installs itself, so look in those places too.
+const INSTALLS = [".local/bin/claude", ".claude/local/claude"].map((file) => path.join(os.homedir(), file))
+const SYSTEM = ["/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+
+function find() {
+  const found = whichPkg.sync("claude", { nothrow: true })
+  if (found) return found
+  return [...INSTALLS, ...SYSTEM].find((file) => {
+    try {
+      accessSync(file, constants.X_OK)
+      return true
+    } catch {
+      return false
+    }
+  })
+}
+
 export const real: Interface = {
-  which: () => process.env.OPENCODE_CLAUDE_PATH || whichPkg.sync("claude", { nothrow: true }) || undefined,
+  which: () => process.env.OPENCODE_CLAUDE_PATH || find(),
   env: () => process.env,
   sessionExists: async (sessionID, configDir) => {
     if (configDir) {
